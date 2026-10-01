@@ -10,6 +10,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - SNMP now identifies the WireGuard `wg` netif by name, preventing a CGNAT-addressed WiFi or Ethernet uplink from being hooked as both itself and `ts0`. The router's ACL hooks install before SNMP hooks, and disabling SNMP restores its netif pointers.
 - A stored empty SNMP community disables the listener at boot until a valid community is saved. SNMP settings now use one NVS blob, with legacy keys read for migration; a failed save leaves the live agent unchanged.
 - The SNMP settings endpoint accepts the full four-field form, validates the 255-byte field limit, and the BER varbind buffer can encode every accepted system string.
+- The SNMP task leaves its receive loop as soon as a disable has taken its socket away, instead of going back to `recvfrom()` on a closed descriptor whose number lwIP may already have given to another socket.
 - The radio debug endpoint rejects malformed BSSIDs and octets outside the MAC address format instead of truncating them or reporting a false success.
 
 ### Added

@@ -1148,9 +1148,14 @@ static void snmp_task(void *arg)
 
         xSemaphoreTake(s_mutex, portMAX_DELAY);
         enabled = s_enabled;
+        /* apply_live(false) takes s_sock away and closes the descriptor.
+         * Once that has happened the number may already belong to another
+         * socket, so never go back to recvfrom()/sendto() on it. */
+        bool sock_ours = (s_sock == sock);
         char comm[256]; strncpy(comm, s_strings->community, sizeof(comm)); comm[255] = '\0';
         xSemaphoreGive(s_mutex);
 
+        if (!sock_ours) break;
         if (!enabled) continue;
 
         int rsp = process_pdu(buf->rx, rlen, buf->tx, sizeof(buf->tx), comm, buf);
