@@ -6,6 +6,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.28] — 2026-10-01
+
+A read-only SNMP agent, contributed by @gszigethy (#11). Off by default, and it costs no internal RAM until it is switched on. Device-tested before tagging on the WiFi-only reference router: manual OTA, full walk (82 objects) over v2c and v1, wrong and empty communities ignored, malformed and oversized datagrams survived, interface counters checked against real traffic, three tunnel reconnects with the agent running, repeated rapid enable/disable, settings kept across a reboot, internal heap back to the never-enabled level after disable (about 4.7 KB lower while enabled), six peers direct, an AP client through the router.
+
 ### Fixed
 - SNMP now identifies the WireGuard `wg` netif by name, preventing a CGNAT-addressed WiFi or Ethernet uplink from being hooked as both itself and `ts0`. The router's ACL hooks install before SNMP hooks, and disabling SNMP restores its netif pointers.
 - A stored empty SNMP community disables the listener at boot until a valid community is saved. SNMP settings now use one NVS blob, with legacy keys read for migration; a failed save leaves the live agent unchanged.
