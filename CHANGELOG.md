@@ -6,6 +6,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+- SNMP now identifies the WireGuard `wg` netif by name, preventing a CGNAT-addressed WiFi or Ethernet uplink from being hooked as both itself and `ts0`. The router's ACL hooks install before SNMP hooks, and disabling SNMP restores its netif pointers.
+- A stored empty SNMP community disables the listener at boot until a valid community is saved. SNMP settings now use one NVS blob, with legacy keys read for migration; a failed save leaves the live agent unchanged.
+- The SNMP settings endpoint accepts the full four-field form, validates the 255-byte field limit, and the BER varbind buffer can encode every accepted system string.
+- The radio debug endpoint rejects malformed BSSIDs and octets outside the MAC address format instead of truncating them or reporting a false success.
+
+### Added
+- **Read-only SNMPv1/v2c agent**, off by default, configured from a card in the System tab (`GET`/`POST /api/snmp`). One FreeRTOS task on a BSD socket bound to `0.0.0.0:161` with its own BER codec — not lwIP's agent, which cannot be enabled in ESP-IDF 5.5.3 (`CONFIG_LWIP_SNMP` is not a Kconfig symbol, so setting it in `sdkconfig.defaults` is silently ignored). GET and GETNEXT only; there is no SET, so nothing can be changed over SNMP. Everything lands on standard MIBs so LibreNMS/Zabbix/Observium discover it with no custom MIB file: MIB-II system and interfaces, HOST-RESOURCES-MIB for per-core CPU load, memory and task count, and ENTITY-SENSOR-MIB for the die temperature. Traffic counters cover all three interfaces including the Tailscale tunnel, collected by wrapping the netif function pointers because lwIP's own `mib2_counters` are compiled out without `LWIP_SNMP`. Interfaces are resolved at runtime through `esp_netif` ifkeys, so a board with no Ethernet reports `ifOperStatus down` on `eth0` and works unchanged. One private OID remains — `1.3.6.1.4.1.99999.1.1.4.0` (`heapMinFreeBytes`), the only reading with no standard home.
+
+### Changed
+- `CONFIG_LWIP_MAX_SOCKETS` 24 → 26 (+1 for the SNMP UDP socket, +1 headroom). Existing build trees keep their generated `sdkconfig.esp32-s3`; copy this setting there or run a clean reconfigure after updating.
+- The web UI's CPU-temperature sampler reads through `snmp_agent_chip_temp_c()` instead of installing its own sensor handle. The chip has one thermal sensor and `temperature_sensor_install()` refuses a second owner, so with the agent claiming it at boot a second lazy-install would have failed and returned −999 forever.
+
 ## [0.1.27] — 2026-09-16
 
 The router stops rebooting on uplink channel changes, and a tidy-up inside microlink. Device-tested before tagging: manual OTA, a forced roam of the uplink from channel 11 to channel 1 and back with the AP client watched from its own side (no reboot, client stayed associated, tunnel back within half a minute, heap flat across six roams), six peers direct, an AP client through the router.
