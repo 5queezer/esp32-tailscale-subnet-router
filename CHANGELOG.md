@@ -6,6 +6,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+- **Web endpoints can no longer vanish silently.** The HTTP server's handler table was sized for exactly the 58 endpoints registered, and the result of each registration was ignored, so the next endpoint added would simply have answered 404 with nothing in the log. Registrations are now checked and logged, and the table has headroom (72).
+- **No more `/favicon.ico` 404s.** Every open browser tab produced a 404 and a "URI not found" warning in the device log. The web UI now carries its icon inline, and `/favicon.ico` serves the same icon (no login needed) for clients that ask anyway. Both ideas from [@gszigethy](https://github.com/gszigethy)'s fork.
+
 ## [0.1.28] — 2026-10-01
 
 A read-only SNMP agent, contributed by @gszigethy (#11). Off by default, and it costs no internal RAM until it is switched on. Device-tested before tagging on the WiFi-only reference router: manual OTA, full walk (82 objects) over v2c and v1, wrong and empty communities ignored, malformed and oversized datagrams survived, interface counters checked against real traffic, three tunnel reconnects with the agent running, repeated rapid enable/disable, settings kept across a reboot, internal heap back to the never-enabled level after disable (about 4.7 KB lower while enabled), six peers direct, an AP client through the router.
