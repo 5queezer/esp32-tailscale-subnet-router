@@ -6,6 +6,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.29] — 2026-10-02
+
+Four small hardening fixes, two of them contributed by @gszigethy (#12, #13). Device-tested before tagging on the WiFi-only reference router: manual OTA; the favicon served without a session and every one of the 48 web endpoints registered; the same 20 route lookups before and after with the exit node off and with exit node plus LAN bypass on; an AP client reaching the gateway, the uplink LAN, a tailnet peer and the internet in both modes; SNMP on and off; six peers direct. The CGNAT-uplink case itself could not be reproduced on the bench (no such uplink here), so that fix rests on the code and on unchanged behaviour on an ordinary uplink.
+
 ### Fixed
 - **Web endpoints can no longer vanish silently.** The HTTP server's handler table was sized for exactly the 58 endpoints registered, and the result of each registration was ignored, so the next endpoint added would simply have answered 404 with nothing in the log. Registrations are now checked and logged, and the table has headroom (72).
 - **No more `/favicon.ico` 404s.** Every open browser tab produced a 404 and a "URI not found" warning in the device log. The web UI now carries its icon inline, and `/favicon.ico` serves the same icon (no login needed) for clients that ask anyway. Both ideas from [@gszigethy](https://github.com/gszigethy)'s fork.
