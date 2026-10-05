@@ -25,6 +25,8 @@
 #include "lwip/prot/ip4.h"
 #include "lwip/err.h"
 #include "lwip/tcpip.h"
+#include "lwip/dns.h"
+#include "lwip/dhcp.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -103,6 +105,63 @@ static struct netif *find_sta_netif(void)
         if (netif_is_sta(n) && netif_is_up(n) && netif_is_link_up(n)) {
             return n;
         }
+    }
+    return NULL;
+}
+
+/* An uplink can live in 100.64.0.0/10 itself, or hand out a resolver from
+ * it: Starlink, many LTE/5G routers and some ISPs do. "CGNAT destination ->
+ * always the tunnel" then captures traffic only the uplink can carry -- the
+ * DHCP-provided resolver first of all, after which the control plane and the
+ * relays stop resolving and the node drops off the tailnet (issue #17).
+ *
+ * So before the tunnel rule: a CGNAT destination that is not a tailnet peer
+ * goes out through a real interface when it is
+ *   - on-link on an interface that is up (the uplink's own subnet), or
+ *   - one of the resolvers in use, or
+ *   - the uplink's DHCP server (a unicast renewal has to reach it).
+ * Tailnet peers keep going to the tunnel even if the uplink's prefix covers
+ * them (a /10 uplink covers every one of them): the WireGuard netif knows each
+ * peer as a /32, and that is asked first.
+ *
+ * Returns NULL when the tunnel rule should apply. *why gets a short reason
+ * for route_explain(). Runs in the TCP/IP thread from the hook. */
+static struct netif *cgnat_local_exception(uint32_t dst_hbo, const char **why)
+{
+    extern struct netif *netif_list;
+    ip4_addr_t dst;
+    dst.addr = lwip_htonl(dst_hbo);
+
+    if (microlink_wg_has_peer_ip(find_wg_netif(), dst.addr)) return NULL;
+
+    for (struct netif *n = netif_list; n; n = n->next) {
+        if (netif_is_wg(n)) continue;
+        if (!netif_is_up(n) || !netif_is_link_up(n)) continue;
+        const ip4_addr_t *addr = netif_ip4_addr(n);
+        const ip4_addr_t *mask = netif_ip4_netmask(n);
+        if (addr == NULL || mask == NULL) continue;
+        if (ip4_addr_isany_val(*addr) || ip4_addr_isany_val(*mask)) continue;
+        if (ip4_addr_netcmp(&dst, addr, mask)) {
+            if (why) *why = "on-link on this interface, not a tailnet peer";
+            return n;
+        }
+    }
+
+    struct netif *uplink = find_sta_netif();
+    if (uplink == NULL) return NULL;
+    for (u8_t i = 0; i < DNS_MAX_SERVERS; i++) {
+        const ip_addr_t *srv = dns_getserver(i);
+        if (srv && IP_IS_V4(srv) && !ip_addr_isany(srv) &&
+            ip4_addr_get_u32(ip_2_ip4(srv)) == dst.addr) {
+            if (why) *why = "uplink DNS resolver, not a tailnet peer";
+            return uplink;
+        }
+    }
+    struct dhcp *dhcp = netif_dhcp_data(uplink);
+    if (dhcp && !ip_addr_isany_val(dhcp->server_ip_addr) && IP_IS_V4(&dhcp->server_ip_addr) &&
+        ip4_addr_get_u32(ip_2_ip4(&dhcp->server_ip_addr)) == dst.addr) {
+        if (why) *why = "uplink DHCP server, not a tailnet peer";
+        return uplink;
     }
     return NULL;
 }
@@ -430,8 +489,11 @@ struct netif *__wrap_ip4_route_src_hook(const ip4_addr_t *src,
     uint32_t dst_hbo = lwip_ntohl(dest->addr);
     uint32_t src_hbo = (src != NULL) ? lwip_ntohl(src->addr) : 0;
 
-    /* 1. Tailnet CGNAT — always WG. */
+    /* 1. Tailnet CGNAT -> WG, unless the address belongs to the uplink side
+     * (see cgnat_local_exception). */
     if (ip_in_cgnat(dst_hbo)) {
+        struct netif *local = cgnat_local_exception(dst_hbo, NULL);
+        if (local != NULL) return local;
         if (should_log_route_hook()) {
             ESP_LOGW(TAG, "[ROUTE_HOOK] CGNAT src=%lu.%lu.%lu.%lu dst=%lu.%lu.%lu.%lu -> wg",
                      (src_hbo>>24)&0xFF, (src_hbo>>16)&0xFF, (src_hbo>>8)&0xFF, src_hbo&0xFF,
@@ -669,8 +731,15 @@ void route_explain(uint32_t src_hbo, uint32_t dst_hbo,
         }
     }
 
-    /* 1. CGNAT. */
+    /* 1. CGNAT (mirrors the hook, exception included). */
     if (ip_in_cgnat(dst_hbo)) {
+        const char *why = NULL;
+        struct netif *local = cgnat_local_exception(dst_hbo, &why);
+        if (local != NULL) {
+            name_netif(local, out_netif, out_netif_size);
+            snprintf(out, out_size, "CGNAT address, but %s", why ? why : "local");
+            return;
+        }
         struct netif *wg = find_wg_netif();
         name_netif(wg, out_netif, out_netif_size);
         snprintf(out, out_size,
