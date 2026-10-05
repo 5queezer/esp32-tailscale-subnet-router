@@ -6,6 +6,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+- **Explicit uplink DNS also works with DHCP.** Apply the per-network resolver before Tailscale starts, and check every five seconds to repair resolver changes caused by DHCP renewals that do not emit a got-IP event. Main and backup resolver slots follow the override. Repairs are logged.
+
+### Changed
+- **Migration:** a saved per-network `dns` value now applies even when `ip`, `mask`, and `gw` are empty. If you previously cleared a static address but retained its DNS value, clear the DNS field as well to continue using DHCP-provided DNS. The UI now displays and saves DNS independently of static addressing.
+
 ## [0.1.29] — 2026-10-02
 
 Four small hardening fixes, two of them contributed by @gszigethy (#12, #13). Device-tested before tagging on the WiFi-only reference router: manual OTA; the favicon served without a session and every one of the 48 web endpoints registered; the same 20 route lookups before and after with the exit node off and with exit node plus LAN bypass on; an AP client reaching the gateway, the uplink LAN, a tailnet peer and the internet in both modes; SNMP on and off; six peers direct. The CGNAT-uplink case itself could not be reproduced on the bench (no such uplink here), so that fix rests on the code and on unchanged behaviour on an ordinary uplink.

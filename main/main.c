@@ -35,6 +35,8 @@
 #endif
 #include "lwip/err.h"
 #include "lwip/sys.h"
+#include "lwip/dns.h"
+#include "lwip/tcpip.h"
 
 #include "tailscale_config.h"
 #include "tailscale_mtu.h"
@@ -147,8 +149,88 @@ static void dns_relay_state_cb(bool healthy)
  * failure we tick s_net_retries and, after WIFI_RETRIES_PER_NETWORK,
  * roll forward to the next configured network. */
 #define WIFI_RETRIES_PER_NETWORK 5
+#define WIFI_DNS_OVERRIDE_CHECK_MS 5000
 static int s_net_current = 0;
 static int s_net_retries = 0;
+
+static void wifi_clear_fallback_dns(void *arg)
+{
+    (void)arg;
+    dns_setserver(ESP_NETIF_DNS_FALLBACK, NULL);
+}
+
+/* Keep an explicit per-network resolver authoritative. lwIP rewrites its
+ * DHCP-managed resolver slots whenever an ACK arrives, including lease
+ * renewals that leave the address unchanged and therefore emit no
+ * IP_EVENT_STA_GOT_IP. Replacing the backup prevents it from bypassing the
+ * override; clearing the DHCP-exempt fallback avoids carrying this network's
+ * override into a later network that inherits DNS. */
+static bool wifi_apply_dns_override(esp_netif_t *sta)
+{
+    wifi_network_t network;
+    ip4_addr_t dns_addr;
+    int network_idx = s_net_current;
+
+    if (!sta || !wifi_networks_get(network_idx, &network)
+        || !ip4addr_aton(network.dns, &dns_addr) || !dns_addr.addr) {
+        return false;
+    }
+
+    esp_netif_dns_info_t desired = {0};
+    desired.ip.type = ESP_IPADDR_TYPE_V4;
+    desired.ip.u_addr.ip4.addr = dns_addr.addr;
+
+    bool changed = false;
+    for (esp_netif_dns_type_t type = ESP_NETIF_DNS_MAIN;
+         type < ESP_NETIF_DNS_FALLBACK; type++) {
+        esp_netif_dns_info_t current = {0};
+        esp_err_t err = esp_netif_get_dns_info(sta, type, &current);
+        if (err == ESP_OK && current.ip.type == ESP_IPADDR_TYPE_V4
+            && current.ip.u_addr.ip4.addr == dns_addr.addr) {
+            continue;
+        }
+
+        err = esp_netif_set_dns_info(sta, type, &desired);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG_STA, "DNS override slot %d failed: %s",
+                     (int)type, esp_err_to_name(err));
+            continue;
+        }
+        changed = true;
+    }
+
+    esp_netif_dns_info_t fallback = {0};
+    esp_err_t fallback_err = esp_netif_get_dns_info(
+        sta, ESP_NETIF_DNS_FALLBACK, &fallback);
+    bool fallback_empty = fallback_err == ESP_OK
+        && (fallback.ip.type == ESP_IPADDR_TYPE_ANY
+            || ESP_IP_IS_ANY(fallback.ip));
+    if (!fallback_empty) {
+        err_t err = tcpip_callback_wait(wifi_clear_fallback_dns, NULL);
+        if (err != ERR_OK) {
+            ESP_LOGW(TAG_STA, "DNS fallback clear failed: %d", (int)err);
+        } else {
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        ESP_LOGI(TAG_STA, "DNS override applied for wifi[%d]: %s",
+                 network_idx, network.dns);
+    }
+    return changed;
+}
+
+static void wifi_dns_override_task(void *arg)
+{
+    esp_netif_t *sta = (esp_netif_t *)arg;
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(WIFI_DNS_OVERRIDE_CHECK_MS));
+        if (ap_connect) {
+            wifi_apply_dns_override(sta);
+        }
+    }
+}
 
 /* Tracks the last applied enterprise state so we only disable when
  * actually switching away from an EAP slot. Calling enterprise_disable
@@ -335,6 +417,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         s_retry_num = 0;
         s_net_retries = 0;   /* successful association — clear the rotation counter */
         ap_connect = 1;
+
+        /* DHCP can supply a resolver in 100.64/10, which the tailnet route
+         * captures once WG is up. Honour an explicit per-network DNS even
+         * in DHCP mode, before starting Tailscale or updating AP DNS. */
+        wifi_apply_dns_override(event->esp_netif);
 
         /* Single radio: the softAP always sits on the STA's channel -- the
          * WiFi driver moves it there itself whenever the STA (re)connects,
@@ -873,6 +960,15 @@ void app_main(void)
      * also migrates the legacy single-network NVS keys into slot 0
      * on first boot. */
     wifi_networks_init();
+
+    /* A DHCP renewal can replace the resolver without posting a got-IP
+     * event when the lease keeps the same address. Repair that silent drift
+     * while leaving DHCP-provided DNS untouched for networks with no
+     * explicit resolver. */
+    if (xTaskCreate(wifi_dns_override_task, "wifi_dns", 3072,
+                    esp_netif_sta, 1, NULL) != pdPASS) {
+        ESP_LOGW(TAG_STA, "failed to start DNS override monitor");
+    }
 
     /* DHCP reservation table — read now so the cached lookups are
      * ready before the AP netif starts handing out leases. The
