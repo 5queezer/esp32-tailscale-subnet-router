@@ -4179,12 +4179,12 @@
           n.static_ip = {
             ip:   row.querySelector('.net-ip').value,
             mask: row.querySelector('.net-mask').value,
-            gw:   row.querySelector('.net-gw').value,
-            dns:  row.querySelector('.net-dns').value
+            gw:   row.querySelector('.net-gw').value
           };
         } else {
           n.static_ip = {};
         }
+        n.static_ip.dns = row.querySelector('.net-dns').value;
         /* EAP capture — method=0 means disabled (clears the block). */
         var eapMethod = parseInt(row.querySelector('.net-eap-method').value, 10) || 0;
         if (eapMethod === 0) {
@@ -4296,10 +4296,10 @@
               +   '</div>'
               +   '<div class="grid grid-cols-2">'
               +     '<div class="form-group"><label class="form-label">Gateway</label>    <input class="input mono net-gw"   type="text" placeholder="192.168.1.1"   value="' + escapeHtml(sip.gw  || '') + '"></div>'
-              +     '<div class="form-group"><label class="form-label">DNS server</label> <input class="input mono net-dns"  type="text" placeholder="empty = use gateway" value="' + escapeHtml(sip.dns || '') + '">'
-              +       '<span class="form-hint">Leave empty to forward DNS through the gateway (the usual home-router setup).</span>'
-              +     '</div>'
               +   '</div>'
+              + '</div>'
+              + '<div class="form-group"><label class="form-label">DNS server (DHCP or static IP)</label> <input class="input mono net-dns" type="text" placeholder="empty = gateway (static) / DHCP-provided" value="' + escapeHtml(sip.dns || '') + '">'
+              +   '<span class="form-hint">Overrides the uplink DNS in either mode. Empty uses the gateway with a static IP, or the DHCP-provided DNS with an automatic IP.</span>'
               + '</div>'
               + '</div>';
       });

@@ -22,7 +22,8 @@ Up to **5** networks, tried in order. Per network:
 |---|---|
 | **SSID** | Upstream 2.4 GHz network to join. |
 | **Password** | WPA2/WPA3 PSK. Leave empty to keep the stored one. |
-| **Static IP** *(optional)* | `ip` / `mask` / `gw` / `dns`; empty = DHCP. |
+| **Static IP** *(optional)* | `ip` / `mask` / `gw`; leave these empty for DHCP. |
+| **DNS server** *(optional)* | Applies to DHCP and static addressing. Empty = DHCP-provided DNS, or the gateway in static mode. An explicit resolver is applied on connection and checked every five seconds to repair DHCP renewal changes. Use a resolver outside `100.64.0.0/10` to avoid collision with Tailscale routing. Clear previously saved DNS if you want DHCP to choose it after upgrading. |
 | **WPA2-Enterprise (EAP)** *(optional)* | Method, phase-2, identity/username/password, optional CA bundle. |
 
 ## Network → Access Point (AP)
