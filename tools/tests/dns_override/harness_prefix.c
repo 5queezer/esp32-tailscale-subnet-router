@@ -46,23 +46,26 @@ static int mock_clear_calls;
 static int mock_fail_set_type = -1;
 static err_t mock_callback_result = ERR_OK;
 
-static bool wifi_networks_get(int idx, wifi_network_t *out)
+bool wifi_networks_get(int idx, wifi_network_t *out)
 {
     if (!mock_network_present || idx != s_net_current) return false;
     *out = mock_network;
     return true;
 }
 
-static bool ip4addr_aton(const char *s, ip4_addr_t *out)
+bool ip4addr_aton(const char *s, ip4_addr_t *out)
 {
-    unsigned a, b, c, d;
+    unsigned a;
+    unsigned b;
+    unsigned c;
+    unsigned d;
     if (sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) != 4
         || a > 255 || b > 255 || c > 255 || d > 255) return false;
     out->addr = a | (b << 8) | (c << 16) | (d << 24);
     return true;
 }
 
-static esp_err_t esp_netif_get_dns_info(esp_netif_t *sta,
+esp_err_t esp_netif_get_dns_info(const esp_netif_t *sta,
                                         esp_netif_dns_type_t type,
                                         esp_netif_dns_info_t *out)
 {
@@ -71,9 +74,9 @@ static esp_err_t esp_netif_get_dns_info(esp_netif_t *sta,
     return ESP_OK;
 }
 
-static esp_err_t esp_netif_set_dns_info(esp_netif_t *sta,
+esp_err_t esp_netif_set_dns_info(const esp_netif_t *sta,
                                         esp_netif_dns_type_t type,
-                                        esp_netif_dns_info_t *dns)
+                                        const esp_netif_dns_info_t *dns)
 {
     (void)sta;
     mock_set_calls[type]++;
@@ -82,7 +85,7 @@ static esp_err_t esp_netif_set_dns_info(esp_netif_t *sta,
     return ESP_OK;
 }
 
-static void dns_setserver(unsigned type, const void *dns)
+void dns_setserver(unsigned type, const void *dns)
 {
     assert(type == ESP_NETIF_DNS_FALLBACK);
     assert(dns == NULL);
@@ -91,7 +94,7 @@ static void dns_setserver(unsigned type, const void *dns)
     mock_clear_calls++;
 }
 
-static err_t tcpip_callback_wait(void (*fn)(void *), void *arg)
+err_t tcpip_callback_wait(void (*fn)(void *), void *arg)
 {
     if (mock_callback_result != ERR_OK) return mock_callback_result;
     fn(arg);
